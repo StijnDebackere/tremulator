@@ -10,6 +10,14 @@ training.
 
 ## Installation
 
+### Using pip
+
+`tremulator` is available on [PyPI](https://pypi.org/), install using
+
+```
+pip install tremulator --upgrade
+```
+
 ### Github
 
 The package can be installed from Github by running the following
@@ -19,14 +27,6 @@ git clone https://github.com/StijnDebackere/tremulator
 cd tremulator
 python3 setup.py install
 ```
-
-<!-- ### Using pip -->
-
-<!-- `tremulator` is available on [PyPI](https://pypi.org/), install using -->
-
-<!-- ``` -->
-<!-- pip install tremulator --upgrade -->
-<!-- ``` -->
 
 ### Dependencies
 `tremulator` will automatically install the following packages
