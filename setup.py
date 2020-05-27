@@ -22,8 +22,8 @@ setuptools.setup(
                       "tqdm"],
     classifiers=[
         "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 2",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
-    ],
-    python_requires='>=3.6',
+    ]
 )

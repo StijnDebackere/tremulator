@@ -968,6 +968,8 @@ class Emulator(EmulatorBase):
             "bounds": self.bounds,
             "hyper_bounds": self.hyper_bounds,
         }
-        parameters = dict(parameters.items() + extra.items())
+        # python 2 compatible
+        parameters = parameters.copy()
+        parameters.update(extra)
         with asdf.AsdfFile(parameters) as ff:
             ff.write_to(fname)
