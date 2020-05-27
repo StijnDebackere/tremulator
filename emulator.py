@@ -119,6 +119,8 @@ def dict_to_kernel(k_dict):
             
     elif isinstance(k_dict, kernels.Kernel):
         return k_dict
+    else:
+        raise TypeError("kernel should be kernels.Kernel or dict")
 
 
 def kernel_to_map(kernel):
