@@ -959,6 +959,9 @@ class Emulator(EmulatorBase):
         extra : dict
             extra information to be saved
         """
+        # if alpha has not been computed, calculate it
+        if self.gp_alpha is None:
+            self.gp._compute_alpha(self.y, cache=True)
         parameters = {
             "theta": self.theta,
             "y": self.y,

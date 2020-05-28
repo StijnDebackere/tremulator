@@ -5,7 +5,7 @@ with open("readme.md", "r") as fh:
 
 setuptools.setup(
     name="tremulator", # Replace with your own username
-    version="0.0.1",
+    version="0.0.2",
     author="Stijn Debackere",
     author_email="debackere@strw.leidenuniv.nl",
     description="A package to emulate expensive functions using Gaussian processes.",
