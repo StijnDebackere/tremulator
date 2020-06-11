@@ -718,6 +718,7 @@ class EmulatorBase(object):
 
     def _gp_init(self):
         self._gp = george.GP(self.kernel)
+        
         self._gp.compute(self.theta)
         self.y = np.array([self.f(t, *self.args, **self.kwargs)
                            for t in self.theta])
@@ -749,6 +750,12 @@ class EmulatorBase(object):
         theta = self._check_theta(theta)
         y = np.array([self.f(c, *self.args, **self.kwargs) for c in theta])
 
+        is_nan = np.isnan(y)
+        if is_nan.any():
+            warnings.warn("NaNs in function, dropping theta = {}".format(theta[is_nan]),
+                          RuntimeWarning)
+            theta = theta[~is_nan]
+            y = y[~is_nan]
         # update the coordinates and function values
         self.theta = np.vstack([self.theta, theta])
         self.y = np.concatenate([self.y, y])
