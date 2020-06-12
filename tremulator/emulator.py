@@ -967,7 +967,7 @@ class Emulator(EmulatorBase):
             extra information to be saved
         """
         # if alpha has not been computed, calculate it
-        if self.gp_alpha is None:
+        if self.gp.alpha is None:
             self.gp._compute_alpha(self.y, cache=True)
         parameters = {
             "theta": self.theta,
@@ -978,6 +978,7 @@ class Emulator(EmulatorBase):
             "bounds": self.bounds,
             "hyper_bounds": self.hyper_bounds,
         }
+
         # python 2 compatible
         parameters = parameters.copy()
         parameters.update(extra)
