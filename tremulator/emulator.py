@@ -186,6 +186,20 @@ def map_to_kernel(kernel_map):
     return kernel_operators[kernel_map[0]](k1, k2)
 
 
+def arrays_to_theta(*xi):
+    '''
+    Convert a set of N 1-D coordinate arrays to a regular coordinate grid of
+    dimension (npoints, N) for the interpolator
+    '''
+    # the meshgrid matches each of the *xi to all the other *xj
+    Xi = np.meshgrid(*xi, indexing='ij')
+
+    # now we create a column vector of all the coordinates
+    theta = np.concatenate([X.reshape(X.shape + (1,)) for X in Xi], axis=-1)
+
+    return theta.reshape(-1, len(xi))
+
+
 class Interpolator(object):
     """
     Gaussian process interpolator
@@ -526,11 +540,12 @@ class EmulatorBase(object):
     ):
         self.n_init = n_init
         self.bounds = bounds
-        self._reset()
+        if self.bounds is not None:
+            self._reset()
         self.f = f
         self.kernel = kernel
-        self.args = [] if args is None else args
-        self.kwargs = {} if kwargs is None else kwargs
+        self.args = args
+        self.kwargs = kwargs
         self.hyper_bounds = hyper_bounds
         self.n_restarts = n_restarts
 
@@ -562,13 +577,28 @@ class EmulatorBase(object):
 
     @bounds.setter
     def bounds(self, value):
-        value = np.atleast_2d(value)
-        if len(value.shape) > 2 or value.shape[1] != 2:
-            raise TypeError("bounds should have shape (n_dim, 2)")
-        if (value[:, 0] >= value[:, 1]).any():
-            raise ValueError("Cannot have lower bound >= upper bound")
-        self._n_dim = value.shape[0]
-        self._bounds = value
+        if value is None:
+            warnings.warn("bounds will need to be loaded",
+                          RuntimeWarning)
+            self._bounds = None
+        else:
+            value = np.atleast_2d(value)
+            if len(value.shape) > 2 or value.shape[1] != 2:
+                raise TypeError("bounds should have shape (n_dim, 2)")
+            if (value[:, 0] >= value[:, 1]).any():
+                raise ValueError("cannot have lower bound >= upper bound")
+            self._n_dim = value.shape[0]
+            self._bounds = value
+
+            # set initial guess for theta
+            self.theta_center = 0.5 * (self.bounds[:, 1] + self.bounds[:, 0])
+            self.theta_range = self.bounds[:, 1] - self.bounds[:, 0]
+            self.theta_init = ((pd.lhs(self._n_dim,
+                                       self.n_init,
+                                       criterion="maximin") - 0.5)
+                               * self.theta_range + self.theta_center)
+            # and load test values
+            self.theta_test = None
 
     def _check_theta(self, theta):
         """Check whether theta has right dimensions"""
@@ -593,10 +623,37 @@ class EmulatorBase(object):
 
     @f.setter
     def f(self, value):
-        if not callable(value):
+        if value is None:
+            warnings.warn("f will need to be loaded", RuntimeWarning)
+            self._f = None
+        elif not callable(value):
             raise TypeError("f should be callable")
         else:
             self._f = value
+
+    @property
+    def args(self):
+        return self._args
+
+    @args.setter
+    def args(self, value):
+        if value is None:
+            self._args = ()
+        else:
+            self._args = value
+
+    @property
+    def kwargs(self):
+        return self._kwargs
+
+    @kwargs.setter
+    def kwargs(self, value):
+        if value is None:
+            self._kwargs = {}
+        elif not isinstance(value, dict):
+            raise TypeError("kwargs should be dict")
+        else:
+            self._kwargs = value
 
     @property
     def y(self):
@@ -617,7 +674,10 @@ class EmulatorBase(object):
 
     @kernel.setter
     def kernel(self, kernel):
-        if isinstance(kernel, kernels.Kernel):
+        if kernel is None:
+            warnings.warn("kernel will need to be loaded", RuntimeWarning)
+            self._kernel = None
+        elif isinstance(kernel, kernels.Kernel):
             self._kernel_dim = kernel.ndim
             self._kernel = kernel
         else:
@@ -629,15 +689,14 @@ class EmulatorBase(object):
 
     @hyper_bounds.setter
     def hyper_bounds(self, value):
-        # need hyper_bounds if optimization required
         if value is None:
-            raise ValueError("hyper_bounds required for hyper parameters")
-
+            warnings.warn("hyper_parameters will need to be loaded",
+                          RuntimeWarning)
+            self._hyper_bounds = None
         else:
             value = np.atleast_2d(value)
             if len(value.shape) > 2:
                 raise TypeError("hyper_bounds should be 2d")
-            # mean + kernel parameters
             elif (value.shape[0] == self._kernel_dim + 1 and
                   value.shape[1] == 2):
                 self._hyper_bounds = value
@@ -657,13 +716,32 @@ class EmulatorBase(object):
 
     def _reset(self):
         """Reset theta to a Latin hypercube with n_init points"""
-        self.theta_center = 0.5 * (self.bounds[:, 1] + self.bounds[:, 0])
-        self.theta_range = self.bounds[:, 1] - self.bounds[:, 0]
-        self.theta_init = ((pd.lhs(self._n_dim,
-                                   self.n_init,
-                                   criterion="maximin") - 0.5)
-                           * self.theta_range + self.theta_center)
+        # theta_init is set when loading bounds
         self.theta = self.theta_init
+        # set theta_test to None to automatically load the test points
+        # can be updated later
+        self.theta_test = None
+
+    @property
+    def theta_test(self):
+        return self._theta_test
+
+    @theta_test.setter
+    def theta_test(self, value):
+        """Create theta grid spanning parameter space for testing"""
+        if value is None:
+            # for low-dimensional data, sample regular grid
+            if self._n_dim <= 4:
+                self._theta_test = arrays_to_theta(*np.linspace(self.bounds[:, 0],
+                                                                self.bounds[:, 1],
+                                                                5).T)
+            # otherwise, hypercube with fixed number of points
+            else:
+                self._theta_test = ((pd.lhs(self._n_dim, 512, criterion="maximin") - 0.5)
+                                    * self.theta_range + self.theta_center)
+
+        else:
+            self._theta_test = self._check_theta(value)
 
     def _optimize_hyper_parameters(self, verbose=False):
         """Optimize the Gaussian process hyperparameters by minimizing the log
@@ -718,10 +796,17 @@ class EmulatorBase(object):
 
     def _gp_init(self):
         self._gp = george.GP(self.kernel)
-        
         self._gp.compute(self.theta)
-        self.y = np.array([self.f(t, *self.args, **self.kwargs)
-                           for t in self.theta])
+        try:
+            # if y has already been loaded, we don't need to recompute it
+            # but it should have the same shape is y
+            if self.y.shape[0] != self.theta.shape[0]:
+                raise TypeError("y should have same n_samples as theta")
+        except AttributeError:
+            self.y = np.array([self.f(t, *self.args, **self.kwargs)
+                               for t in tqdm(self.theta,
+                                             desc="Setting up y(theta_init)",
+                                             position=1)])
 
     @property
     def gp(self):
@@ -786,14 +871,14 @@ class Emulator(EmulatorBase):
         number of points in the initial Latin hypercube (default: 10)
     f : callable f(theta)
         function to be emulated f(theta, *args, **kwargs) -> float
+    kernel : george.kernels.Kernel object
+        kernel to use for the Gaussian process
     bounds : array
         lower and upper bounds for each dimension of the input theta to f
     args : tuple, optional
         positional arguments for f
     kwargs : dict, optional
         keyword arguments for f
-    kernel : george.kernels.Kernel object
-        kernel to use for the Gaussian process
     hyper_bounds: array
         lower and upper bounds for each hyperparameter in the given kernel
     n_restarts : int
@@ -820,6 +905,8 @@ class Emulator(EmulatorBase):
             kwargs=kwargs,
             hyper_bounds=hyper_bounds,
             n_restarts=n_restarts)
+        # cannot be converged at initialization
+        self.converged = False
 
     def _check_converged(self, var_tol=1e-3):
         """Check convergence of the process by requiring var_max < var_tol for
@@ -837,10 +924,6 @@ class Emulator(EmulatorBase):
                        criterion="maximin") - 0.5)
                * self.theta_range + self.theta_center)
         for p0 in p0s:
-            # # randomly draw from allowed space
-            # p0 = np.random.uniform(low=self.bounds[:, 0],
-            #                        high=self.bounds[:, 1])
-
             # find optimal parameters
             result = op.minimize(neg_var, p0, method="L-BFGS-B",
                                  bounds=self.bounds)
@@ -883,9 +966,9 @@ class Emulator(EmulatorBase):
         n_steps : int
             number of steps to iterate
         a : float
-            weight of func in acquisition
+            relative weight of func in acquisition
         b : float
-            weight of variance in acquisition
+            relative weight of variance in acquisition
         n_add : int
             number of points to add
         n_walkers : int
@@ -920,7 +1003,7 @@ class Emulator(EmulatorBase):
             theta_temp = self.theta * 1.
             for idx, theta in enumerate(samples[indices]):
                 # for each coordinate compare the distance to the data points
-                # to the minimum lenght scale of the domain
+                # to the minimum length scale of the domain
                 # do not include points which are less than epsilon of that scale
                 norms = np.linalg.norm(theta_temp - theta, axis=-1)
                 scale = np.min(self.theta_range)
@@ -932,13 +1015,21 @@ class Emulator(EmulatorBase):
 
             return samples[indices][~close]
 
+        self.a = a
+        self.b = b
         # run the training
-        for i in tqdm(range(n_steps)):
-            theta_new = acquire_theta(a=a, b=b, n_add=n_add,
+        for i in tqdm(range(n_steps), desc="Training", position=0):
+            theta_new = acquire_theta(a=self.a, b=self.b, n_add=n_add,
                                       n_walkers=n_walkers)
             self.add(theta_new)
 
-            # only check convergence every 5 steps
+            # rescale a and b by the median of y and var to preserve relative
+            # importance of both
+            y_test, var_test = self.predict(self.theta_test, var=True)
+            self.a = a / np.median(y_test)
+            self.b = b / np.median(var_test)
+
+            # only check convergence every 10 steps
             if (i + 1) % 10:
                 continue
 
@@ -967,16 +1058,22 @@ class Emulator(EmulatorBase):
             extra information to be saved
         """
         # if alpha has not been computed, calculate it
-        if self.gp.alpha is None:
+        if self.gp._alpha is None:
             self.gp._compute_alpha(self.y, cache=True)
         parameters = {
+            "n_init": self.n_init,
+            # # cannot save functions to asdf...
+            # "f": self.f,
+            "args": self.args,
+            "kwargs": self.kwargs,
+            "kernel": kernel_to_map(self.kernel),
+            "bounds": self.bounds,
+            "hyper_bounds": self.hyper_bounds,
+            "n_restarts": self.n_restarts,
             "theta": self.theta,
             "y": self.y,
             "hyper_parameters": self.gp.get_parameter_vector(),
-            "kernel": kernel_to_map(self.kernel),
             "alpha": self.gp._alpha,
-            "bounds": self.bounds,
-            "hyper_bounds": self.hyper_bounds,
         }
 
         # python 2 compatible
@@ -984,3 +1081,22 @@ class Emulator(EmulatorBase):
         parameters.update(extra)
         with asdf.AsdfFile(parameters) as ff:
             ff.write_to(fname)
+
+    def load(self, fname):
+        with asdf.open(fname, copy_arrays=True) as af:
+            self.n_init = af.tree["n_init"]
+            # # will need to load these separately...
+            # self.f = af.tree["f"]
+            self.args = af.tree["args"]
+            self.kwargs = af.tree["kwargs"]
+            self.kernel = map_to_kernel(af.tree["kernel"][:])
+            self.bounds = af.tree["bounds"][:]
+            self.hyper_bounds = af.tree["hyper_bounds"][:]
+            self.n_restarts = af.tree["n_restarts"]
+            self.theta = af.tree["theta"][:]
+            self.y = af.tree["y"][:]
+            self.hyper_parameters = af.tree["hyper_parameters"][:]
+            self.alpha = af.tree["alpha"][:]
+
+        warnings.warn("f, args and kwargs will need to be loaded",
+                      RuntimeWarning)        
