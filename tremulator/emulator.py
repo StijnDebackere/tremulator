@@ -806,7 +806,7 @@ class EmulatorBase(object):
             self.y = np.array([self.f(t, *self.args, **self.kwargs)
                                for t in tqdm(self.theta,
                                              desc="Setting up y(theta_init)",
-                                             position=1)])
+                                             position=0)])
 
     @property
     def gp(self):
@@ -1018,7 +1018,7 @@ class Emulator(EmulatorBase):
         self.a = a
         self.b = b
         # run the training
-        for i in tqdm(range(n_steps), desc="Training", position=0):
+        for i in tqdm(range(n_steps), desc="Training", position=1):
             theta_new = acquire_theta(a=self.a, b=self.b, n_add=n_add,
                                       n_walkers=n_walkers)
             self.add(theta_new)
