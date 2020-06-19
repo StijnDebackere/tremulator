@@ -116,7 +116,7 @@ def dict_to_kernel(k_dict):
             return k
         else:
             raise ValueError("kernel_dict needs 'type', 'parameters' and 'ndim' keys")
-            
+
     elif isinstance(k_dict, kernels.Kernel):
         return k_dict
     else:
@@ -524,7 +524,7 @@ class EmulatorBase(object):
     hyper_bounds: array
         lower and upper bounds for each hyperparameter in the given kernel
     n_restarts : int
-        number of random initialization positions for hyperparameters 
+        number of random initialization positions for hyperparameters
         optimization (default: 5)
     """
     def __init__(
@@ -804,9 +804,7 @@ class EmulatorBase(object):
                 raise TypeError("y should have same n_samples as theta")
         except AttributeError:
             self.y = np.array([self.f(t, *self.args, **self.kwargs)
-                               for t in tqdm(self.theta,
-                                             desc="Setting up y(theta_init)",
-                                             position=0)])
+                               for t in self.theta])
 
     @property
     def gp(self):
@@ -821,12 +819,6 @@ class EmulatorBase(object):
         Predict f(theta) using the GP emulator
         """
         theta = self._check_theta(theta)
-
-        # # check if all values are within the bounds
-        # out_of_bounds = ~self._within_bounds(theta)
-        # if out_of_bounds.any():
-        #     warnings.warn("extrapolating for {}".format(theta[out_of_bounds]),
-        #                   RuntimeWarning)
         return self.gp.predict(self.y, theta, return_var=var, return_cov=cov,
                                **kwargs)
 
@@ -875,14 +867,14 @@ class Emulator(EmulatorBase):
         kernel to use for the Gaussian process
     bounds : array
         lower and upper bounds for each dimension of the input theta to f
-    args : tuple, optional
+t    args : tuple, optional
         positional arguments for f
     kwargs : dict, optional
         keyword arguments for f
     hyper_bounds: array
         lower and upper bounds for each hyperparameter in the given kernel
     n_restarts : int
-        number of random initialization positions for hyperparameters 
+        number of random initialization positions for hyperparameters
         optimization (default: 25)
     """
     def __init__(
@@ -1018,7 +1010,7 @@ class Emulator(EmulatorBase):
         self.a = a
         self.b = b
         # run the training
-        for i in tqdm(range(n_steps), desc="Training", position=1):
+        for i in tqdm(range(n_steps), desc="Training", position=0):
             theta_new = acquire_theta(a=self.a, b=self.b, n_add=n_add,
                                       n_walkers=n_walkers)
             self.add(theta_new)
@@ -1064,8 +1056,8 @@ class Emulator(EmulatorBase):
             "n_init": self.n_init,
             # # cannot save functions to asdf...
             # "f": self.f,
-            "args": self.args,
-            "kwargs": self.kwargs,
+            # "args": self.args,
+            # "kwargs": self.kwargs,
             "kernel": kernel_to_map(self.kernel),
             "bounds": self.bounds,
             "hyper_bounds": self.hyper_bounds,
@@ -1085,10 +1077,9 @@ class Emulator(EmulatorBase):
     def load(self, fname):
         with asdf.open(fname, copy_arrays=True) as af:
             self.n_init = af.tree["n_init"]
-            # # will need to load these separately...
-            # self.f = af.tree["f"]
-            self.args = af.tree["args"]
-            self.kwargs = af.tree["kwargs"]
+            # if args is None, load ()
+            # self.args = af.tree.get("args", ())
+            # self.kwargs = af.tree.get("kwargs", {})
             self.kernel = map_to_kernel(af.tree["kernel"][:])
             self.bounds = af.tree["bounds"][:]
             self.hyper_bounds = af.tree["hyper_bounds"][:]
@@ -1099,4 +1090,4 @@ class Emulator(EmulatorBase):
             self.alpha = af.tree["alpha"][:]
 
         warnings.warn("f, args and kwargs will need to be loaded",
-                      RuntimeWarning)        
+                      RuntimeWarning)
