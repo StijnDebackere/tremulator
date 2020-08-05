@@ -1,3 +1,4 @@
+from multiprocessing import Pool
 import numpy as np
 import scipy.optimize as op
 import warnings
@@ -537,6 +538,7 @@ class EmulatorBase(object):
             kwargs={},
             hyper_bounds=None,
             n_restarts=25,
+            pool=None,
     ):
         self.n_init = n_init
         self.bounds = bounds
@@ -548,6 +550,7 @@ class EmulatorBase(object):
         self.kwargs = kwargs
         self.hyper_bounds = hyper_bounds
         self.n_restarts = n_restarts
+        self.pool = pool
 
     @property
     def n_init(self):
@@ -743,6 +746,13 @@ class EmulatorBase(object):
         else:
             self._theta_test = self._check_theta(value)
 
+    def __getstate__(self):
+        # In order to be generally picklable, we need to discard the pool
+        # object before trying.
+        d = self.__dict__
+        d["pool"] = None
+        return d
+
     def _optimize_hyper_parameters(self, verbose=False):
         """Optimize the Gaussian process hyperparameters by minimizing the log
         likelihood.
@@ -803,8 +813,15 @@ class EmulatorBase(object):
             if self.y.shape[0] != self.theta.shape[0]:
                 raise TypeError("y should have same n_samples as theta")
         except AttributeError:
-            self.y = np.array([self.f(t, *self.args, **self.kwargs)
-                               for t in self.theta])
+            if self.pool is not None:
+                map_fn = self.pool.map
+            else:
+                map_fn = map
+
+            # create dummy function that already has args and kwargs passed
+            def f(theta): return self.f(theta, *self.args, **self.kwargs)
+
+            self.y = map_fn(f, theta.tolist())
 
     @property
     def gp(self):
@@ -825,7 +842,16 @@ class EmulatorBase(object):
     def add(self, theta):
         """Add observations theta to the emulator"""
         theta = self._check_theta(theta)
-        y = np.array([self.f(c, *self.args, **self.kwargs) for c in theta])
+
+        # create dummy function that already has args and kwargs passed
+        def f(theta): return self.f(theta, *self.args, **self.kwargs)
+
+        if self.pool is not None:
+            map_fn = self.pool.map
+        else:
+            map_fn = map
+
+        y = map_fn(f, theta.tolist())
 
         is_nan = np.isnan(y)
         if is_nan.any():
@@ -887,6 +913,7 @@ t    args : tuple, optional
             kwargs={},
             hyper_bounds=None,
             n_restarts=25,
+            pool=None,
     ):
         super(Emulator, self).__init__(
             n_init=n_init,
@@ -896,7 +923,8 @@ t    args : tuple, optional
             args=args,
             kwargs=kwargs,
             hyper_bounds=hyper_bounds,
-            n_restarts=n_restarts)
+            n_restarts=n_restarts,
+            pool=pool)
         # cannot be converged at initialization
         self.converged = False
 
@@ -962,7 +990,7 @@ t    args : tuple, optional
         b : float
             relative weight of variance in acquisition
         n_add : int
-            number of points to add
+            number of points to add, better to keep this value low (< 10)
         n_walkers : int
             number of walkers to use to sample acquisition function
         var_tol : float
@@ -971,7 +999,7 @@ t    args : tuple, optional
             minimum fractional distance between new and previous theta
         """
         def acquire_theta(a, b, n_add, n_walkers):
-            """Draw samples from acquisition"""
+            """Draw n_add samples from acquisition"""
             p0 = (np.ones((n_walkers, self._n_dim))
                   * self.theta_center.reshape(1, -1))
             p0 += ((np.random.rand(n_walkers, self._n_dim) - 0.5)
@@ -980,7 +1008,8 @@ t    args : tuple, optional
             # set up the sampler for the acquisition function
             sampler = emcee.EnsembleSampler(n_walkers, self._n_dim,
                                             self.acquisition,
-                                            args=(a, b))
+                                            args=(a, b),
+                                            pool=self.pool)
 
             # run the chain
             sampler.run_mcmc(p0, 600)
@@ -1021,8 +1050,8 @@ t    args : tuple, optional
             self.a = a / np.median(y_test)
             self.b = b / np.median(var_test)
 
-            # only check convergence every 10 steps
-            if (i + 1) % 10:
+            # only check convergence every 20 steps
+            if (i + 1) % 20:
                 continue
 
             # first optimize hyper parameters
@@ -1056,6 +1085,8 @@ t    args : tuple, optional
             "n_init": self.n_init,
             # # cannot save functions to asdf...
             # "f": self.f,
+            # # if args or kwargs are None, or not built-in,
+            # # asdf does not transfer them correctly
             # "args": self.args,
             # "kwargs": self.kwargs,
             "kernel": kernel_to_map(self.kernel),
@@ -1077,7 +1108,7 @@ t    args : tuple, optional
     def load(self, fname):
         with asdf.open(fname, copy_arrays=True) as af:
             self.n_init = af.tree["n_init"]
-            # if args is None, load ()
+            # # if args is None, load ()
             # self.args = af.tree.get("args", ())
             # self.kwargs = af.tree.get("kwargs", {})
             self.kernel = map_to_kernel(af.tree["kernel"][:])
