@@ -1,6 +1,6 @@
-from multiprocessing import Pool
 import numpy as np
 import scipy.optimize as op
+import time
 import warnings
 
 import asdf
@@ -10,6 +10,7 @@ from george import kernels
 from george import metrics
 import pyDOE as pd
 from tqdm import tqdm
+
 
 # all possible kernel types that we can serialize easily
 kernel_types = [
@@ -537,7 +538,7 @@ class EmulatorBase(object):
             args=(),
             kwargs={},
             hyper_bounds=None,
-            n_restarts=25,
+            n_restarts=5,
             pool=None,
     ):
         self.n_init = n_init
@@ -746,13 +747,6 @@ class EmulatorBase(object):
         else:
             self._theta_test = self._check_theta(value)
 
-    def __getstate__(self):
-        # In order to be generally picklable, we need to discard the pool
-        # object before trying.
-        d = self.__dict__
-        d["pool"] = None
-        return d
-
     def _optimize_hyper_parameters(self, verbose=False):
         """Optimize the Gaussian process hyperparameters by minimizing the log
         likelihood.
@@ -821,7 +815,7 @@ class EmulatorBase(object):
             # create dummy function that already has args and kwargs passed
             def f(theta): return self.f(theta, *self.args, **self.kwargs)
 
-            self.y = map_fn(f, theta.tolist())
+            self.y = list(map_fn(f, theta.tolist()))
 
     @property
     def gp(self):
@@ -843,28 +837,36 @@ class EmulatorBase(object):
         """Add observations theta to the emulator"""
         theta = self._check_theta(theta)
 
-        # create dummy function that already has args and kwargs passed
-        def f(theta): return self.f(theta, *self.args, **self.kwargs)
-
-        if self.pool is not None:
-            map_fn = self.pool.map
+        # check if we are actually adding new coordinates
+        if theta.size == 0:
+            pass
         else:
-            map_fn = map
+            # create dummy function that already has args and kwargs passed
+            def f(theta): return self.f(theta, *self.args, **self.kwargs)
 
-        y = map_fn(f, theta.tolist())
+            print("Calculating y")
+            t1 = time.time()
+            if self.pool is not None:
+                map_fn = self.pool.map
+            else:
+                map_fn = map
 
-        is_nan = np.isnan(y)
-        if is_nan.any():
-            warnings.warn("NaNs in function, dropping theta = {}".format(theta[is_nan]),
-                          RuntimeWarning)
-            theta = theta[~is_nan]
-            y = y[~is_nan]
-        # update the coordinates and function values
-        self.theta = np.vstack([self.theta, theta])
-        self.y = np.concatenate([self.y, y])
+            y = list(map_fn(f, theta.tolist()))
+            t2 = time.time()
+            print(f"y with shape {theta.shape} took {t2 - t1} seconds")
 
-        # now get the new Gaussian process
-        self.gp.compute(self.theta)
+            is_nan = np.isnan(y)
+            if is_nan.any():
+                warnings.warn("NaNs in function, dropping theta = {}".format(theta[is_nan]),
+                              RuntimeWarning)
+                theta = theta[~is_nan]
+                y = y[~is_nan]
+            # update the coordinates and function values
+            self.theta = np.vstack([self.theta, theta])
+            self.y = np.concatenate([self.y, y])
+
+            # now get the new Gaussian process
+            self.gp.compute(self.theta)
 
     def _check_converged(self, *args, **kwargs):
         """Convergence check for the emulator"""
@@ -912,7 +914,7 @@ t    args : tuple, optional
             args=(),
             kwargs={},
             hyper_bounds=None,
-            n_restarts=25,
+            n_restarts=5,
             pool=None,
     ):
         super(Emulator, self).__init__(
@@ -1006,14 +1008,17 @@ t    args : tuple, optional
                    * self.theta_range)
 
             # set up the sampler for the acquisition function
-            sampler = emcee.EnsembleSampler(n_walkers, self._n_dim,
-                                            self.acquisition,
-                                            args=(a, b),
-                                            pool=self.pool)
+            sampler = emcee.EnsembleSampler(
+                n_walkers, self._n_dim,
+                self.acquisition,
+                args=(a, b),
+                # # somehow, this starts using all the CPU available on the threads
+                # # and is not faster than running serially... Must be some issue here.
+                # pool=self.pool
+            )
 
             # run the chain
             sampler.run_mcmc(p0, 600)
-
             # get the samples with burn-in removed
             samples = sampler.chain[:, 100:, :].reshape(-1, self._n_dim)
 
@@ -1050,8 +1055,8 @@ t    args : tuple, optional
             self.a = a / np.median(y_test)
             self.b = b / np.median(var_test)
 
-            # only check convergence every 20 steps
-            if (i + 1) % 20:
+            # only check convergence for every 20 added coordinates
+            if self.theta.shape[0] % 50:
                 continue
 
             # first optimize hyper parameters
