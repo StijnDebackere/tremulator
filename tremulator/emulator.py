@@ -12,38 +12,27 @@ import pyDOE as pd
 from tqdm import tqdm
 
 
-# all possible kernel types that we can serialize easily
-kernel_types = [
-    kernels.ConstantKernel,
-    kernels.CosineKernel,
-    kernels.DotProductKernel,
-    kernels.EmptyKernel,
-    kernels.ExpKernel,
-    kernels.ExpSine2Kernel,
-    kernels.ExpSquaredKernel,
-    kernels.LinearKernel,
-    kernels.LocalGaussianKernel,
-    kernels.Matern32Kernel,
-    kernels.Matern52Kernel,
-    kernels.PolynomialKernel,
-    # # This kernel also needs an alpha parameter besides the metric...
-    # kernels.RationalQuadraticKernel,
-]
-
-# we will need to extract the correct operators for composed kernels
-kernel_operators = [kernels.Sum, kernels.Product]
-
 # since metric parameters are the log of the given parameter, we need to
 # pass the metric instead of the parameters to instantiate the kernel.
-# Only works for kernels that take only a metric.
-metric_type = np.zeros_like(kernel_types, dtype=bool)
-metric_type[[4, 6, 9, 10]] = True
+# Only works for kernels that take only a metric:
+only_metric = [
+    'ExpKernel',
+    'ExpSquaredKernel',
+    'Matern32Kernel',
+    'Matern52Kernel'
+]
+
+# kernel operators are identified by integer values
+operator_types = [kernels.Sum, kernels.Product]
+
+
+def is_metric_type(kernel_name):
+    """Check whether kernel_name requires only metric argument."""
+    return kernel_name in only_metric
 
 
 def metric_to_dict(metric):
-    """
-    Convert george.metrics.Metric object to dict for asdf serialization.
-    """
+    """Convert george.metrics.Metric object to dict for asdf serialization."""
     m_dict = {}
     m_dict["metric_type"] = metric.metric_type
     m_dict["ndim"] = metric.ndim
@@ -71,7 +60,6 @@ def dict_to_metric(m_dict):
     m.parameter_vector = m_dict["parameter_vector"][:]
     m.parameter_bounds = m_dict["parameter_bounds"][:]
     m.axes = m_dict["axes"][:]
-
     return m
 
 
@@ -83,19 +71,25 @@ def kernel_to_dict(kernel):
         if kernel.kernel_type == -1:
             raise ValueError("need a basic Kernel object")
         else:
-            k_dict = {"type": kernel.kernel_type,
-                      "parameters": (kernel.get_parameter_vector()
-                                     if not metric_type[kernel.kernel_type]
-                                     else metric_to_dict(kernel.metric)),
-                      "ndim": kernel.ndim}
+            k_dict = {
+                "name": type(kernel).__name__,
+                "parameters": (
+                    kernel.get_parameter_vector()
+                    if not is_metric_type(type(kernel).__name__)
+                    else metric_to_dict(kernel.metric)
+                ),
+                "ndim": kernel.ndim
+            }
         return k_dict
     elif isinstance(kernel, dict):
-        if ("type" in kernel.keys() and
-            "parameters" in kernel.keys() and
-            "ndim" in kernel.keys()):
+        if (
+                "name" in kernel.keys() and
+                "parameters" in kernel.keys() and
+                "ndim" in kernel.keys()
+        ):
             return kernel
         else:
-            raise ValueError("kernel_dict needs 'type', 'parameters' and 'ndim' keys")
+            raise ValueError("kernel_dict needs 'name', 'parameters' and 'ndim' keys")
     else:
         raise TypeError("kernel should be kernels.Kernel or dict")
 
@@ -107,16 +101,21 @@ def dict_to_kernel(k_dict):
     map_to_kernel recursion. Used in asdf serialization.
     """
     if isinstance(k_dict, dict):
-        if ("type" in k_dict.keys() and
-            "parameters" in k_dict.keys() and
-            "ndim" in k_dict.keys()):
-            k = kernel_types[k_dict["type"]](k_dict["parameters"]
-                                             if not metric_type[k_dict["type"]]
-                                             else dict_to_metric(k_dict["parameters"]),
-                                             ndim=k_dict["ndim"])
+        if (
+                "name" in k_dict.keys() and
+                "parameters" in k_dict.keys() and
+                "ndim" in k_dict.keys()
+        ):
+            # get kernel type from class name
+            k = getattr(kernels, k_dict["name"])(
+                k_dict["parameters"]
+                if not is_metric_type(k_dict["name"])
+                else dict_to_metric(k_dict["parameters"]),
+                ndim=k_dict["ndim"]
+            )
             return k
         else:
-            raise ValueError("kernel_dict needs 'type', 'parameters' and 'ndim' keys")
+            raise ValueError("kernel_dict needs 'name', 'parameters' and 'ndim' keys")
 
     elif isinstance(k_dict, kernels.Kernel):
         return k_dict
@@ -143,7 +142,7 @@ def kernel_to_map(kernel):
     """
     # kernel is still composed of multiple kernels
     if kernel.kernel_type == -1:
-        operator = kernel.operator_type
+        operator = operator_types[kernel.operator_type].__name__
         kernel_1 = kernel.models["k1"]
         kernel_2 = kernel.models["k2"]
         return [operator, kernel_to_map(kernel_1), kernel_to_map(kernel_2)]
@@ -179,12 +178,12 @@ def map_to_kernel(kernel_map):
     else:
         k1 = dict_to_kernel(kernel_map[1])
         k2 = dict_to_kernel(kernel_map[2])
-        return kernel_operators[kernel_map[0]](k1, k2)
+        return getattr(kernels, kernel_map[0])(k1, k2)
 
     # now we need to add up the final objects
     k1 = dict_to_kernel(kernel_map[1])
     k2 = dict_to_kernel(kernel_map[2])
-    return kernel_operators[kernel_map[0]](k1, k2)
+    return getattr(kernels, kernel_map[0])(k1, k2)
 
 
 def arrays_to_theta(*xi):
