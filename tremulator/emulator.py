@@ -25,7 +25,6 @@ kernel_types = [
     kernels.LocalGaussianKernel,
     kernels.Matern32Kernel,
     kernels.Matern52Kernel,
-    kernels.MyLocalGaussianKernel,
     kernels.PolynomialKernel,
     # # This kernel also needs an alpha parameter besides the metric...
     # kernels.RationalQuadraticKernel,
