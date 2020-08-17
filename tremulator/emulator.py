@@ -541,6 +541,8 @@ class EmulatorBase(object):
     ):
         self.n_init = n_init
         self.bounds = bounds
+        # in case we are not initializing an empty Emulator to read in theta
+        # later, we need to get the n_init values of theta
         if self.bounds is not None:
             self._reset()
         self.f = f
@@ -813,7 +815,7 @@ class EmulatorBase(object):
             # create dummy function that already has args and kwargs passed
             def f(theta): return self.f(theta, *self.args, **self.kwargs)
 
-            self.y = list(map_fn(f, theta.tolist()))
+            self.y = list(map_fn(f, self.theta.tolist()))
 
     @property
     def gp(self):
