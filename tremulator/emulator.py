@@ -537,20 +537,25 @@ class EmulatorBase(object):
             hyper_bounds=None,
             n_restarts=5,
             pool=None,
+            fname=None,
     ):
-        self.n_init = n_init
-        self.bounds = bounds
-        # in case we are not initializing an empty Emulator to read in theta
-        # later, we need to get the n_init values of theta
-        if self.bounds is not None:
-            self._reset()
-        self.f = f
-        self.kernel = kernel
-        self.args = args
-        self.kwargs = kwargs
-        self.hyper_bounds = hyper_bounds
-        self.n_restarts = n_restarts
-        self.pool = pool
+        if fname is not None:
+            self.load(fname=fname)
+
+        else:
+            self.n_init = n_init
+            self.bounds = bounds
+            # in case we are not initializing an empty Emulator to read in theta
+            # later, we need to get the n_init values of theta
+            if self.bounds is not None:
+                self._reset()
+            self.f = f
+            self.kernel = kernel
+            self.args = args
+            self.kwargs = kwargs
+            self.hyper_bounds = hyper_bounds
+            self.n_restarts = n_restarts
+            self.pool = pool
 
     @property
     def n_init(self):
@@ -863,6 +868,61 @@ class EmulatorBase(object):
             # now get the new Gaussian process
             self.gp.compute(self.theta)
 
+    def save(self, fname, extra={}):
+        """Save the trained GP parameters to fname
+
+        Parameters
+        ----------
+        fname : str
+            path for savefile, asdf format
+        extra : dict
+            extra information to be saved
+        """
+        # if alpha has not been computed, calculate it
+        if self.gp._alpha is None:
+            self.gp._compute_alpha(self.y, cache=True)
+        parameters = {
+            "n_init": self.n_init,
+            # # cannot save functions to asdf...
+            # "f": self.f,
+            # # if args or kwargs are None, or not built-in,
+            # # asdf does not transfer them correctly
+            # "args": self.args,
+            # "kwargs": self.kwargs,
+            "kernel": kernel_to_map(self.kernel),
+            "bounds": self.bounds,
+            "hyper_bounds": self.hyper_bounds,
+            "n_restarts": self.n_restarts,
+            "theta": self.theta,
+            "y": self.y,
+            "hyper_parameters": self.gp.get_parameter_vector(),
+            "alpha": self.gp._alpha,
+        }
+
+        # python 2 compatible
+        parameters = parameters.copy()
+        parameters.update(extra)
+        with asdf.AsdfFile(parameters) as ff:
+            ff.write_to(fname)
+
+    def load(self, fname):
+        with asdf.open(fname, copy_arrays=True) as af:
+            self.n_init = af.tree["n_init"]
+            # # if args is None, load ()
+            # self.args = af.tree.get("args", ())
+            # self.kwargs = af.tree.get("kwargs", {})
+            self.kernel = map_to_kernel(af.tree["kernel"][:])
+            self.bounds = af.tree["bounds"][:]
+            self.hyper_bounds = af.tree["hyper_bounds"][:]
+            self.n_restarts = af.tree["n_restarts"]
+            self.theta = af.tree["theta"][:]
+            self.y = af.tree["y"][:]
+            self.hyper_parameters = af.tree["hyper_parameters"][:]
+            self.alpha = af.tree["alpha"][:]
+
+        warnings.warn("f, args and kwargs will need to be loaded",
+                      RuntimeWarning)
+
     def _check_converged(self, *args, **kwargs):
         """Convergence check for the emulator"""
         raise NotImplementedError("overloaded by subclasses")
@@ -911,6 +971,7 @@ t    args : tuple, optional
             hyper_bounds=None,
             n_restarts=5,
             pool=None,
+            fname=None,
     ):
         super(Emulator, self).__init__(
             n_init=n_init,
@@ -921,7 +982,9 @@ t    args : tuple, optional
             kwargs=kwargs,
             hyper_bounds=hyper_bounds,
             n_restarts=n_restarts,
-            pool=pool)
+            pool=pool,
+            fname=fname,
+        )
         # cannot be converged at initialization
         self.converged = False
 
@@ -1067,58 +1130,3 @@ t    args : tuple, optional
             warnings.warn("Convergence criterion not reached, run some more steps...",
                           RuntimeWarning)
             self._optimize_hyper_parameters()
-
-    def save(self, fname, extra={}):
-        """Save the trained GP parameters to fname
-
-        Parameters
-        ----------
-        fname : str
-            path for savefile, asdf format
-        extra : dict
-            extra information to be saved
-        """
-        # if alpha has not been computed, calculate it
-        if self.gp._alpha is None:
-            self.gp._compute_alpha(self.y, cache=True)
-        parameters = {
-            "n_init": self.n_init,
-            # # cannot save functions to asdf...
-            # "f": self.f,
-            # # if args or kwargs are None, or not built-in,
-            # # asdf does not transfer them correctly
-            # "args": self.args,
-            # "kwargs": self.kwargs,
-            "kernel": kernel_to_map(self.kernel),
-            "bounds": self.bounds,
-            "hyper_bounds": self.hyper_bounds,
-            "n_restarts": self.n_restarts,
-            "theta": self.theta,
-            "y": self.y,
-            "hyper_parameters": self.gp.get_parameter_vector(),
-            "alpha": self.gp._alpha,
-        }
-
-        # python 2 compatible
-        parameters = parameters.copy()
-        parameters.update(extra)
-        with asdf.AsdfFile(parameters) as ff:
-            ff.write_to(fname)
-
-    def load(self, fname):
-        with asdf.open(fname, copy_arrays=True) as af:
-            self.n_init = af.tree["n_init"]
-            # # if args is None, load ()
-            # self.args = af.tree.get("args", ())
-            # self.kwargs = af.tree.get("kwargs", {})
-            self.kernel = map_to_kernel(af.tree["kernel"][:])
-            self.bounds = af.tree["bounds"][:]
-            self.hyper_bounds = af.tree["hyper_bounds"][:]
-            self.n_restarts = af.tree["n_restarts"]
-            self.theta = af.tree["theta"][:]
-            self.y = af.tree["y"][:]
-            self.hyper_parameters = af.tree["hyper_parameters"][:]
-            self.alpha = af.tree["alpha"][:]
-
-        warnings.warn("f, args and kwargs will need to be loaded",
-                      RuntimeWarning)
