@@ -491,15 +491,35 @@ class Interpolator(object):
         return self.gp.predict(self.y, theta, return_var=var, return_cov=cov,
                                **kwargs)
 
+    def _from_dict(self, dic):
+        """Convert dict to Emulator"""
+        self.kernel = map_to_kernel(dic["kernel"][:])
+        self.bounds = dic["bounds"][:]
+        self.hyper_bounds = dic["hyper_bounds"][:]
+        self.theta = dic["theta"][:]
+        self.y = dic["y"][:]
+        self.hyper_parameters = dic["hyper_parameters"][:]
+        self.alpha = dic["alpha"][:]
+
+    def _to_dict(self):
+        """Convert Emulator to dict for saving"""
+        # if alpha has not been computed, calculate it
+        if self.gp._alpha is None:
+            self.gp._compute_alpha(self.y, cache=True)
+        parameters = {
+            "kernel": kernel_to_map(self.kernel),
+            "bounds": self.bounds,
+            "hyper_bounds": self.hyper_bounds,
+            "theta": self.theta,
+            "y": self.y,
+            "hyper_parameters": self.gp.get_parameter_vector(),
+            "alpha": self.gp._alpha,
+        }
+        return parameters
+
     def load(self, fname):
         with asdf.open(fname, copy_arrays=True) as af:
-            self.theta = af.tree["theta"][:]
-            self.y = af.tree["y"][:]
-            self.kernel = map_to_kernel(af.tree["kernel"][:])
-            self.hyper_parameters = af.tree["hyper_parameters"][:]
-            self.bounds = af.tree["bounds"][:]
-            self.hyper_bounds = af.tree["hyper_bounds"][:]
-            self.alpha = af.tree["alpha"][:]
+            self._from_dict(af)
 
 
 class EmulatorBase(object):
@@ -868,16 +888,8 @@ class EmulatorBase(object):
             # now get the new Gaussian process
             self.gp.compute(self.theta)
 
-    def save(self, fname, extra={}):
-        """Save the trained GP parameters to fname
-
-        Parameters
-        ----------
-        fname : str
-            path for savefile, asdf format
-        extra : dict
-            extra information to be saved
-        """
+    def _to_dict(self):
+        """Convert Emulator to dict for saving"""
         # if alpha has not been computed, calculate it
         if self.gp._alpha is None:
             self.gp._compute_alpha(self.y, cache=True)
@@ -898,7 +910,36 @@ class EmulatorBase(object):
             "hyper_parameters": self.gp.get_parameter_vector(),
             "alpha": self.gp._alpha,
         }
+        return parameters
 
+    def _from_dict(self, dic):
+        """Convert dict to Emulator"""
+        self.n_init = dic["n_init"]
+        self.kernel = map_to_kernel(dic["kernel"][:])
+        self.bounds = dic["bounds"][:]
+        self.hyper_bounds = dic["hyper_bounds"][:]
+        self.n_restarts = dic["n_restarts"]
+        self.theta = dic["theta"][:]
+        self.y = dic["y"][:]
+        self.hyper_parameters = dic["hyper_parameters"][:]
+        self.alpha = dic["alpha"][:]
+
+        warnings.warn(
+            "f, args and kwargs will need to be loaded for Emulator()",
+            RuntimeWarning
+        )
+
+    def save(self, fname, extra={}):
+        """Save the trained GP parameters to fname
+
+        Parameters
+        ----------
+        fname : str
+            path for savefile, asdf format
+        extra : dict
+            extra information to be saved
+        """
+        parameters = self._to_dict()
         # python 2 compatible
         parameters = parameters.copy()
         parameters.update(extra)
@@ -907,21 +948,7 @@ class EmulatorBase(object):
 
     def load(self, fname):
         with asdf.open(fname, copy_arrays=True) as af:
-            self.n_init = af.tree["n_init"]
-            # # if args is None, load ()
-            # self.args = af.tree.get("args", ())
-            # self.kwargs = af.tree.get("kwargs", {})
-            self.kernel = map_to_kernel(af.tree["kernel"][:])
-            self.bounds = af.tree["bounds"][:]
-            self.hyper_bounds = af.tree["hyper_bounds"][:]
-            self.n_restarts = af.tree["n_restarts"]
-            self.theta = af.tree["theta"][:]
-            self.y = af.tree["y"][:]
-            self.hyper_parameters = af.tree["hyper_parameters"][:]
-            self.alpha = af.tree["alpha"][:]
-
-        warnings.warn("f, args and kwargs will need to be loaded",
-                      RuntimeWarning)
+            self._from_dict(af)
 
     def _check_converged(self, *args, **kwargs):
         """Convergence check for the emulator"""
@@ -1064,7 +1091,6 @@ t    args : tuple, optional
                   * self.theta_center.reshape(1, -1))
             p0 += ((np.random.rand(n_walkers, self._n_dim) - 0.5)
                    * self.theta_range)
-
             # set up the sampler for the acquisition function
             sampler = emcee.EnsembleSampler(
                 n_walkers, self._n_dim,
