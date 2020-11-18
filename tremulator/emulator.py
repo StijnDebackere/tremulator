@@ -470,8 +470,7 @@ class EmulatorBase(object):
 
 
 class Emulator(EmulatorBase):
-    """
-    Gaussian process emulator of y(theta) trained by sampling acquisition.
+    """Gaussian process emulator of y(theta) trained by sampling acquisition.
 
     Parameters
     ----------
@@ -492,6 +491,62 @@ class Emulator(EmulatorBase):
     n_restarts : int
         number of random initialization positions for hyperparameters
         optimization (default: 25)
+
+    Examples
+    --------
+    Suppose you have an expensive function f(theta, *args, **kwargs),
+    that you want to emulate the output of, e.g.
+    >>> def f(t):
+    >>>     x, y = t
+    >>>     return x * y
+
+    Given the bounds of the domain and a chosen kernel for the GP, you
+    can instantiate the emulator:
+    >>> from george.kernels import ExpSquaredKernel
+    >>> k = 1**2 * ExpSquaredKernel(np.ones(2), ndim=2)
+    >>> bounds = np.array([[0, 1], [0, 1]])
+    >>> emu = Emulator(n_init=10, f=f, bounds=bounds, kernel=k)
+
+    Now, we can already make predictions from the n_init points that
+    were automatically calculated:
+    >>> emu.predict([0.5, 0.5])
+
+    To get optimal results, it is best optimize the GP
+    hyper_parameters, which requires setting the hyper_bounds. The
+    hyper_bounds set the boundaries on the kernel parameters, in our
+    case, the scaling of the exponential and the correlation lengths
+    in each dimension. Check the typical values of your emulated
+    function and the scales over which it varies to get an idea of the
+    required normalization of the different kernel hyper_parameters.
+    >>> emu.hyper_bounds = np.array([
+    >>>     [np.log(0.001), np.log(1)],
+    >>>     [np.log(0.001), np.log(1)],
+    >>>     [np.log(0.001), np.log(1)],
+    >>> ])
+    >>> emu._optimize_hyper_parameters()
+
+    Then, you can train the GP by simply calling the train method:
+    >>> emu.train(n_steps=10)
+
+    If the function is the result of an expensive calculation and
+    cannot easily be instantiated as a python callable, you can still
+    use the Emulator to make predictions from a set of simulation
+    results. Then, we need to load the coordinates theta, and the
+    function values y manually:
+    >>> theta = np.random((100, 2))
+    >>> emu.theta = theta
+    >>> emu.y = f(theta)
+    >>> emu.kernel = k
+    >>> emu.hyper_bounds = np.array([
+    >>>     [np.log(0.001), np.log(1)],
+    >>>     [np.log(0.001), np.log(1)],
+    >>>     [np.log(0.001), np.log(1)],
+    >>> ])
+    >>> emu._optimize_hyper_parameters()
+
+    Now the GP should be ready to make predictions of f.
+    >>> emu.predict([0.5, 0.5])
+
     """
     def __init__(
             self,
