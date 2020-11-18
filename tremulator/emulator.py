@@ -130,8 +130,13 @@ class EmulatorBase(object):
     def _check_theta(self, theta):
         """Check whether theta has right dimensions"""
         theta = np.atleast_2d(theta)
+        # set _n_dim if theta is being set for the first time
+        if getattr(self, "_n_dim", None) is None and len(theta.shape) == 2:
+            self._n_dim = theta.shape[1]
+
         if len(theta.shape) > 2 or theta.shape[1] != self._n_dim:
             raise TypeError("theta should have shape (n_samples, n_dim)")
+
         return theta
 
     @property
