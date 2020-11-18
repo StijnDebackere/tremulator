@@ -210,7 +210,7 @@ class EmulatorBase(object):
             warnings.warn("kernel will need to be loaded", RuntimeWarning)
             self._kernel = None
         elif isinstance(kernel, kernels.Kernel):
-            self._kernel_dim = kernel.ndim
+            self._kernel_dim = len(kernel.parameter_vector)
             self._kernel = kernel
         else:
             raise TypeError("kernel needs to be Kernel instance")
@@ -229,11 +229,11 @@ class EmulatorBase(object):
             value = np.atleast_2d(value)
             if len(value.shape) > 2:
                 raise TypeError("hyper_bounds should be 2d")
-            elif (value.shape[0] == self._kernel_dim + 1 and
+            elif (value.shape[0] == self._kernel_dim and
                   value.shape[1] == 2):
                 self._hyper_bounds = value
             else:
-                raise TypeError("hyper_bounds should have size (n_dim_kernel + 1, 2)")
+                raise TypeError("hyper_bounds should have size (kernel.parameter_vector, 2)")
 
     @property
     def n_restarts(self):
