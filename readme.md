@@ -6,7 +6,12 @@ functions. It is built upon [`george`](https://github.com/dfm/george)
 and allows the trained emulator to be saved to an
 [`asdf`](https://github.com/spacetelescope/asdf) file. The saved file
 can be read by the `Interpolator` class which then requires no more
-training.
+training. 
+
+**Important note:** loading a file requires 
+[this forked version of `george`](https://github.com/StijnDebackere/george),
+since otherwise the `kernel` cannot be instantiated correctly. This 
+installation should happen automatically when installing through Github.
 
 ## Installation
 
