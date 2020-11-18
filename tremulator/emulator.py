@@ -372,14 +372,14 @@ class EmulatorBase(object):
             pass
         else:
             # create dummy function that already has args and kwargs passed
-            def f(theta): return self.f(theta, *self.args, **self.kwargs)
+            def f(t): return self.f(t, *self.args, **self.kwargs)
 
             if self.pool is not None:
                 map_fn = self.pool.map
             else:
                 map_fn = map
 
-            y = list(map_fn(f, theta.tolist()))
+            y = list(map_fn(f, [*theta]))
 
             is_nan = np.isnan(y)
             if is_nan.any():
