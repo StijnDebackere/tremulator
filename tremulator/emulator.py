@@ -327,6 +327,8 @@ class EmulatorBase(object):
                   "{}".format(self.gp.log_likelihood(self.y)))
 
     def _gp_init(self):
+        if self.kernel is None:
+            raise AttributeError('kernel should be initialized first')
         self._gp = george.GP(self.kernel)
         self._gp.compute(self.theta)
         try:
