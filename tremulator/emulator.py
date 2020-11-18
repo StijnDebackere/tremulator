@@ -43,7 +43,7 @@ class EmulatorBase(object):
     """
     def __init__(
             self,
-            n_init=10,
+            n_init=None,
             f=None,
             kernel=None,
             bounds=None,
@@ -78,6 +78,10 @@ class EmulatorBase(object):
 
     @n_init.setter
     def n_init(self, value):
+        if value is None:
+            warnings.warn("n_init will need to be loaded, or theta_init set",
+                          RuntimeWarning)
+            self._n_init = value
         if type(value) is int:
             self._n_init = value
         else:
@@ -472,7 +476,7 @@ class Emulator(EmulatorBase):
         kernel to use for the Gaussian process
     bounds : array
         lower and upper bounds for each dimension of the input theta to f
-t    args : tuple, optional
+    args : tuple, optional
         positional arguments for f
     kwargs : dict, optional
         keyword arguments for f
@@ -484,7 +488,7 @@ t    args : tuple, optional
     """
     def __init__(
             self,
-            n_init=10,
+            n_init=None,
             f=None,
             kernel=None,
             bounds=None,
