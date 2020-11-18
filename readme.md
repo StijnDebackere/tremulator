@@ -25,7 +25,7 @@ commands in the preferred installation location:
 ```
 git clone https://github.com/StijnDebackere/tremulator
 cd tremulator
-python3 setup.py install
+pip install .
 ```
 
 ### Dependencies
