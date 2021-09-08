@@ -279,7 +279,13 @@ class Interpolator(object):
                                    high=self.hyper_bounds[:, 1])
 
             # find optimal parameters
-            result = op.minimize(nll, p0, jac=grad_nll, method="L-BFGS-B")
+            result = op.minimize(
+                nll,
+                p0,
+                bounds=[b for b in self.hyper_bounds],
+                jac=grad_nll,
+                method="L-BFGS-B",
+            )
             parameters.append(result.x)
 
             # now compute the loglikelihood for these parameters
