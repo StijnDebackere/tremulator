@@ -8,6 +8,11 @@ and allows the trained emulator to be saved to an
 can be read by the `Interpolator` class which then requires no more
 training.
 
+**Important note:** loading a file requires
+[this forked version of `george`](https://github.com/StijnDebackere/george),
+since otherwise the `kernel` cannot be instantiated correctly. This
+installation should happen automatically when installing through Github.
+
 ## Installation
 
 ### Using pip
@@ -25,7 +30,7 @@ commands in the preferred installation location:
 ```
 git clone https://github.com/StijnDebackere/tremulator
 cd tremulator
-python3 setup.py install
+pip install .
 ```
 
 ### Dependencies
