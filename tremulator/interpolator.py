@@ -245,7 +245,7 @@ class Interpolator(object):
             if not (self._gp.get_parameter_vector()
                     == self.hyper_parameters).all():
                 self._gp.set_parameter_vector(self.hyper_parameters)
-            if not (self._gp._alpha == self.alpha).all():
+            if not np.all(self._gp._alpha == self.alpha):
                 self._gp._alpha = self.alpha
             return self._gp
         except AttributeError:
